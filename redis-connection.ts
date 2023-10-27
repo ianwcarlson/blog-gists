@@ -24,7 +24,14 @@ const connection =
           host,
         },
       ])
-    : new Redis(port, host);
+    : new Redis(port, host, {
+      maxRetriesPerRequest: 1,
+    });
+
+export function closeRedisConnection() {
+  console.log("QUIT!!!");
+  connection.quit();
+}
 
 // One connection for the whole process since runtime is single threaded.
 export default connection;

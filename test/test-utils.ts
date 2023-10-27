@@ -1,10 +1,14 @@
-import { spawn, exec, ExecException } from "child_process";
+import { spawn, exec } from "child_process";
 
 export async function startRedis() {
-  await execShellCommand("docker stop redis || true");
-  await execShellCommand("docker rm redis || true");
+  // await execShellCommand("docker stop redis || true");
+  // await execShellCommand("docker rm redis || true");
 
-  const ls = spawn("docker run --rm -p 6379:6379 --name redis redis:6.2.7", []);
+  const ls = spawn("docker", [
+    "run", "--rm", "-p", "6379:6379", "--name", "redis", "redis:6.2.7"
+  ]);
+
+  console.log("LS: " + JSON.stringify(ls));
 
   ls.stdout.on("data", (data) => {
     console.log(`${data}`);
@@ -15,10 +19,9 @@ export async function startRedis() {
   });
 
   ls.on("error", (error) => {
-    // console.log("error.message: " + error.message);
-    if (!error.message.includes("spawn")) {
+    // if (!error.message.includes("spawn")) {
       console.log(`${error.message}`);
-    }
+    // }
   });
 
   // ls.on("close", (code) => {
@@ -26,9 +29,14 @@ export async function startRedis() {
   // });
 }
 
+export async function stopRedis() {
+  await execShellCommand("docker stop redis || true");
+  await execShellCommand("docker rm redis || true");
+}
+
 async function execShellCommand(command: string) {
   const response = await new Promise<void>(
-    (resolve, reject) => {
+    (resolve) => {
       exec(command, (error, stdout, stderr) => {
         if (error) {
           console.error(`${error.message}`);
