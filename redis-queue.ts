@@ -1,42 +1,6 @@
-// package com.ivanti.platform.jobprocessor.redis;
-
-// import com.ivanti.platform.jobprocessor.utilities.Mapper;
-// import org.apache.commons.lang3.exception.ExceptionUtils;
-// import org.slf4j.Logger;
-// import org.slf4j.LoggerFactory;
-// import redis.clients.jedis.UnifiedJedis;
-
-// import java.io.IOException;
-// import java.util.ArrayList;
-// import java.util.Arrays;
-// import java.util.List;
-// import java.util.Optional;
-// import java.util.Set;
-
-// import static java.lang.Integer.parseInt;
-
-import Redis, { Callback, Result } from "ioredis";
-
-declare module "ioredis" {
-  interface RedisCommander<Context> {
-    execWriteQueueLuaScript(
-      key1: string,
-      key2: string,
-      key3: string,
-      arg1: string,
-      arg2: string,
-      callback?: Callback<string>
-    ): Result<string, Context>;
-  }
-}
+import rc from './redis-connection';
 
 class RedisQueue<T> {
-  rc = new Redis.Cluster([
-    {
-      port: 6380,
-      host: "127.0.0.1",
-    },
-  ]);
   private static DEFAULT_BLOCK_READ_TIMEOUT_SECS = "10";
   private blockReadTimeout;
   private static RETRY_FOR_BATCH_SIZE_WAIT = 200;
@@ -50,7 +14,6 @@ class RedisQueue<T> {
     '  redis.call("SADD", KEYS[1], ARGV[1]);\n' +
     "end\n" +
     "return;";
-  private customCommand;
 
   private queueName: string;
   private partitionSetKey: string;
@@ -69,7 +32,7 @@ class RedisQueue<T> {
     this.roundRobinTotalCountKey =
       RedisQueue.buildRoundRobinTotalSizeKey(queueName); // KEYS[3]
 
-    this.rc.defineCommand("execWriteQueueLuaScript", {
+    rc.defineCommand("execWriteQueueLuaScript", {
       numberOfKeys: 3,
       lua: RedisQueue.WRITE_TO_QUEUE_SCRIPT,
     });
@@ -137,9 +100,9 @@ class RedisQueue<T> {
       // nothing happens. Redis commands should be atomic so don't think there
       // will be write-latency timing issues either.
 
-      this.rc.rpush(dataQueueKey, serializedData);
+      rc.rpush(dataQueueKey, serializedData);
 
-      this.rc.execWriteQueueLuaScript(
+      rc.execWriteQueueLuaScript(
         keys[0],
         keys[1],
         keys[2],
@@ -312,16 +275,18 @@ class RedisQueue<T> {
   public remove(async: boolean) {
     try {
       if (async) {
-        this.rc.unlink(RedisQueue.buildRoundRobinQueueKey(this.queueName));
-        this.rc.unlink(RedisQueue.buildPartitionSetQueueKey(this.queueName));
-        this.rc.unlink(RedisQueue.buildRoundRobinTotalSizeKey(this.queueName));
-        this.rc.unlink(RedisQueue.buildDateQueueKey(this.queueName, "*"));
+        rc.unlink(RedisQueue.buildRoundRobinQueueKey(this.queueName));
+        rc.unlink(RedisQueue.buildPartitionSetQueueKey(this.queueName));
+        rc.unlink(RedisQueue.buildRoundRobinTotalSizeKey(this.queueName));
+        rc.unlink(RedisQueue.buildDateQueueKey(this.queueName, "*"));
       } else {
-        this.rc.del(RedisQueue.buildRoundRobinQueueKey(this.queueName));
-        this.rc.del(RedisQueue.buildPartitionSetQueueKey(this.queueName));
-        this.rc.del(RedisQueue.buildRoundRobinTotalSizeKey(this.queueName));
-        this.rc.del(RedisQueue.buildDateQueueKey(this.queueName, "*"));
+        rc.del(RedisQueue.buildRoundRobinQueueKey(this.queueName));
+        rc.del(RedisQueue.buildPartitionSetQueueKey(this.queueName));
+        rc.del(RedisQueue.buildRoundRobinTotalSizeKey(this.queueName));
+        rc.del(RedisQueue.buildDateQueueKey(this.queueName, "*"));
       }
     } catch (e: any) {}
   }
 }
+
+export { RedisQueue };
