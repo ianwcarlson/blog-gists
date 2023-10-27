@@ -1,5 +1,7 @@
 import { spawn, exec } from "child_process";
 
+import rc from '../redis-connection';
+
 export async function startRedis() {
   // await execShellCommand("docker stop redis || true");
   // await execShellCommand("docker rm redis || true");

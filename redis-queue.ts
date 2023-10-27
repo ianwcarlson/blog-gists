@@ -1,4 +1,4 @@
-import rc from './redis-connection';
+import rc from "./redis-connection";
 
 class RedisQueue<T> {
   private static DEFAULT_BLOCK_READ_TIMEOUT_SECS = "10";
@@ -102,159 +102,59 @@ class RedisQueue<T> {
 
       rc.rpush(dataQueueKey, serializedData);
 
-      rc.execWriteQueueLuaScript(
-        keys[0],
-        keys[1],
-        keys[2],
-        args[0],
-        args[1]
-      );
+      rc.execWriteQueueLuaScript(keys[0], keys[1], keys[2], args[0], args[1]);
     } catch (e: any) {}
   }
 
-  // public List<T> readFromQueue(
-  //   final Class<? extends T> dataPayloadClass,
-  //   final int readBatchSize,
-  //   final int retryCount
-  // ) {
-  //   return readFromQueue(dataPayloadClass, readBatchSize, retryCount, true);
-  // }
+  public async readFromQueue(blockedRead: boolean): Promise<T | null> {
+    const roundRobinQueueKey = RedisQueue.buildRoundRobinQueueKey(
+      this.queueName
+    );
+    const partitionSetKey = RedisQueue.buildPartitionSetQueueKey(
+      this.queueName
+    );
+    const roundRobinTotalCountKey = RedisQueue.buildRoundRobinTotalSizeKey(
+      this.queueName
+    );
 
-  // public List<T> readFromQueue(
-  //   final Class<? extends T> dataPayloadClass,
-  //   final int readBatchSize,
-  //   final int retryCount,
-  //   final Boolean blockedRead
-  // ) {
-  //   String roundRobinQueueKey = RedisQueue.generateRoundRobinQueueKey(queueName);
-  //   String partitionSetKey = RedisQueue.generatePartitionSetQueueKey(queueName);
-  //   String roundRobinTotalCountKey = RedisQueue.generateRoundRobinTotalSizeKey(queueName);
+    const nextPartitionToRead = await rc.blpop(
+      roundRobinQueueKey,
+      this.blockReadTimeout
+    );
 
-  //   Optional<List<String>> nextPartitionToReadOpt =
-  //     readFromRoundRobinQueue(roundRobinQueueKey);
+    if (nextPartitionToRead !== null) {
+      const partitionKey = nextPartitionToRead[1];
+      const dataQueueKey = RedisQueue.buildDateQueueKey(
+        this.queueName,
+        partitionKey
+      );
+      const readBatchData: T = await this.readMessage(
+        dataQueueKey,
+        blockedRead
+      );
 
-  //   if (nextPartitionToReadOpt.isPresent() && !nextPartitionToReadOpt.get().isEmpty()) {
-  //     String partitionKey = nextPartitionToReadOpt.get().get(1);
-  //     String dataQueueKey = generateDateQueueKey(queueName, partitionKey);
-  //     ArrayList<T> readBatchData = readBatch(
-  //       dataQueueKey,
-  //       dataPayloadClass,
-  //       readBatchSize,
-  //       retryCount,
-  //       blockedRead
-  //     );
+      if (readBatchData !== null) {
+        rc.rpush(roundRobinQueueKey, partitionKey);
+      } else {
+        rc.srem(partitionSetKey, partitionKey);
+      }
+      rc.decrby(roundRobinTotalCountKey, 1);
 
-  //     // The only way to get transaction support with jedis is to write
-  //     // a lua script. It doesn't seem like we actually need it, but this
-  //     // comment serves as a reminder in case there are issues.
+      return readBatchData;
+    }
+    return null;
+  }
 
-  //     // If there are more messages in the same partition then push another
-  //     // message to the back of the queue. If there's no work to be done,
-  //     // remove the partition from the active partition set.
-  //     if (readBatchData.size() >= readBatchSize) {
-  //       RedisClusterConnection.runJedisCommand(rc ->
-  //         rc.rpush(roundRobinQueueKey, partitionKey)
-  //       );
-  //     } else {
-  //       RedisClusterConnection.runJedisCommand(rc ->
-  //         rc.srem(partitionSetKey, partitionKey)
-  //       );
-  //     }
-  //     RedisClusterConnection.runJedisCommand(rc ->
-  //       rc.decrBy(roundRobinTotalCountKey, readBatchData.size())
-  //     );
-
-  //     return readBatchData;
-  //   }
-  //   return new ArrayList<>();
-  // }
-
-  // private ArrayList<T> readBatch(
-  //   final String dataQueueKey,
-  //   final Class<? extends T> dataPayloadClass,
-  //   final int readBatchSize,
-  //   final int retryCount,
-  //   final Boolean blockedRead
-  // ) {
-  //   Optional<String> readData = Optional.empty();
-  //   ArrayList<T> readBatchData = new ArrayList<>();
-  //   int messageCount = readBatchSize;
-  //   int localRetryCount = retryCount;
-
-  //   while ((readData.isPresent() || localRetryCount > 0) && messageCount > 0) {
-  //     readData = popFromQueue(dataQueueKey, blockedRead);
-  //     LOGGER.debug("readData: " + readData);
-  //     if (readData.isPresent()) {
-  //       Optional<T> deserializedMessage = deserializeMessage(readData.get(), dataPayloadClass);
-  //       if (deserializedMessage.isPresent()) {
-  //         messageCount -= 1;
-  //         readBatchData.add(deserializedMessage.get());
-  //       }
-  //     } else {
-  //       localRetryCount -= 1;
-  //       if (localRetryCount > 0) {
-  //         try {
-  //           Thread.sleep(RETRY_FOR_BATCH_SIZE_WAIT);
-  //         } catch (InterruptedException e) {
-  //           LOGGER.debug("Sleep interrupted");
-  //           LOGGER.debug(e.getMessage());
-  //         }
-  //       }
-  //     }
-  //   }
-  //   return readBatchData;
-  // }
-
-  // private Optional<String> popFromQueue(
-  //   final String dataQueueKey,
-  //   final Boolean blockedRead
-  // ) {
-  //   try {
-  //     List<String> readData;
-  //     if (blockedRead) {
-  //       readData = RedisClusterConnection.runJedisCommand(rc ->
-  //         rc.blpop(blockReadTimeout, dataQueueKey)
-  //       );
-  //     } else {
-  //       readData = RedisClusterConnection.runJedisCommand(rc ->
-  //         rc.lpop(dataQueueKey, 1)
-  //       );
-  //     }
-  //     LOGGER.debug(readData.toString());
-  //     int dataIdx = blockedRead ? 1 : 0;
-  //     return Optional.of(readData.get(dataIdx));
-  //   } catch (Exception e) {
-  //     return Optional.empty();
-  //   }
-  // }
-
-  // private Optional<T> deserializeMessage(
-  //   final String readData,
-  //   final Class<? extends T> dataPayloadClass
-  // ) {
-  //   try {
-  //     return Optional.of(MAPPER.readValue(
-  //       readData,
-  //       dataPayloadClass
-  //     ));
-  //   } catch (IOException e) {
-  //     LOGGER.debug("Unable to deserialize: " + readData);
-  //     LOGGER.error(e.getMessage());
-  //     return Optional.empty();
-  //   }
-  // }
-
-  // private Optional<List<String>> readFromRoundRobinQueue(final String roundRobinQueueKey) {
-  //   try {
-  //     return Optional.ofNullable(RedisClusterConnection.runJedisCommand(rc ->
-  //       rc.blpop(blockReadTimeout, roundRobinQueueKey))
-  //     );
-  //   } catch (Exception e) {
-  //     LOGGER.debug("Failed to read from round robin queue: " + roundRobinQueueKey);
-  //     LOGGER.debug(e.toString());
-  //     return Optional.of(new ArrayList<>());
-  //   }
-  // }
+  private async readMessage(
+    dataQueueKey: string,
+    blockedRead: boolean
+  ): Promise<T> {
+    const readData = blockedRead
+      ? await rc.blpop(dataQueueKey, this.blockReadTimeout)
+      : await rc.lpop(dataQueueKey);
+    console.log("READ DATA: " + readData);
+    return readData !== null ? JSON.parse(readData[1]) : null;
+  }
 
   public static buildRoundRobinQueueKey(queueName: string) {
     return "{" + queueName + "}:RoundRobin";

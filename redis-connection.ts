@@ -29,7 +29,6 @@ const connection =
     });
 
 export function closeRedisConnection() {
-  console.log("QUIT!!!");
   connection.quit();
 }
 
